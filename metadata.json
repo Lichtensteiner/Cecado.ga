@@ -1,0 +1,6 @@
+{
+  "name": "CECADO Supermarket",
+  "description": "Plateforme e-commerce moderne et mobile-first pour l'enseigne CECADO au Gabon. Catalogue de produits, click & collect, livraison et paiement mobile money.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
+}

@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      // For bootstrapping, we trust the role field if we fetch it, 
+      // but standard practice is to have a dedicated admins collection
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.email is string && data.email.size() <= 256 &&
+               data.role in ['client', 'admin'] &&
+               data.keys().hasAll(['email', 'role']) &&
+               (data.firstName == null || data.firstName is string) &&
+               (data.lastName == null || data.lastName is string);
+      }
+
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() && request.auth.uid == userId && 
+                       isValidUser(incoming()) && 
+                       incoming().role == 'client'; // Users can't make themselves admin
+                       
+      allow update: if isOwner(userId) && 
+                       isValidUser(incoming()) && 
+                       incoming().role == existing().role && // Prevent role change
+                       incoming().email == existing().email; // Prevent email change
+    }
+
+    // Orders
+    match /orders/{orderId} {
+      function isValidOrder(data) {
+        return data.userId is string && data.total is number && 
+               data.status in ['pending', 'processing', 'completed', 'cancelled'] &&
+               data.createdAt is timestamp;
+      }
+
+      allow get: if isSignedIn() && (isOwner(resource.data.userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() && isOwner(incoming().userId) && 
+                       isValidOrder(incoming()) && 
+                       incoming().status == 'pending';
+                       
+      allow update: if isAdmin() && isValidOrder(incoming());
+    }
+  }
+}
